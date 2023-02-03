@@ -21,9 +21,9 @@
 #include "Misc/MessageDialog.h"
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
 #include "Styling/AppStyle.h"
-#else
-#include "EditorStyleSet.h"
 #endif
+#include "EditorStyleSet.h"
+
 
 #include "PackageTools.h"
 #include "FileHelpers.h"
@@ -55,17 +55,32 @@ void FGitSourceControlMenu::Register()
 
 		AddMenuExtension(Section);
 	}
-#else
+#endif
 	// Register the extension with the level editor
 	FLevelEditorModule* LevelEditorModule = FModuleManager::GetModulePtr<FLevelEditorModule>(TEXT("LevelEditor"));
 	if (LevelEditorModule)
 	{
+#if ENGINE_MAJOR_VERSION >= 5
+		auto MakeMenu = [this](FMenuBarBuilder& Builder)
+		{
+			Builder.AddPullDownMenu(
+				NSLOCTEXT("Git", "Git", "Git"),
+				NSLOCTEXT("Git", "GitMenu_ToolTip", "Open the Git menu"),
+				FNewMenuDelegate::CreateRaw(this, &FGitSourceControlMenu::AddMenuExtension)
+			);
+		};
+		
+		ViewMenuExtender = MakeShareable(new FExtender);
+		ViewMenuExtender->AddMenuBarExtension("Window", EExtensionHook::After, nullptr, FMenuBarExtensionDelegate::CreateLambda(MakeMenu));
+		
+		LevelEditorModule->GetMenuExtensibilityManager()->AddExtender(ViewMenuExtender);
+#else
 		FLevelEditorModule::FLevelEditorMenuExtender ViewMenuExtender = FLevelEditorModule::FLevelEditorMenuExtender::CreateRaw(this, &FGitSourceControlMenu::OnExtendLevelEditorViewMenu);
 		auto& MenuExtenders = LevelEditorModule->GetAllLevelEditorToolbarSourceControlMenuExtenders();
 		MenuExtenders.Add(ViewMenuExtender);
 		ViewMenuExtenderHandle = MenuExtenders.Last().GetHandle();
-	}
 #endif
+	}
 }
 
 void FGitSourceControlMenu::Unregister()
@@ -75,14 +90,17 @@ void FGitSourceControlMenu::Unregister()
 	{
 		UToolMenus::Get()->UnregisterOwnerByName("GitSourceControlMenu");
 	}
-#else
+#endif
 	// Unregister the level editor extensions
 	FLevelEditorModule* LevelEditorModule = FModuleManager::GetModulePtr<FLevelEditorModule>("LevelEditor");
 	if (LevelEditorModule)
 	{
+#if ENGINE_MAJOR_VERSION >= 5
+		LevelEditorModule->GetMenuExtensibilityManager()->RemoveExtender(ViewMenuExtender);
+#else
 		LevelEditorModule->GetAllLevelEditorToolbarSourceControlMenuExtenders().RemoveAll([=](const FLevelEditorModule::FLevelEditorMenuExtender& Extender) { return Extender.GetHandle() == ViewMenuExtenderHandle; });
-	}
 #endif
+	}
 }
 
 bool FGitSourceControlMenu::HaveRemoteUrl() const
@@ -593,6 +611,63 @@ void FGitSourceControlMenu::AddMenuExtension(FMenuBuilder& Builder)
 		)
 	);
 }
+
+#if ENGINE_MAJOR_VERSION >= 5
+void FGitSourceControlMenu::AddMenuExtension(FMenuBuilder& Builder)
+{
+	Builder.AddMenuEntry(
+		LOCTEXT("GitCommit", "Submit to Source Control"),
+		LOCTEXT("GitPushTooltip", "Commits all local pending changes"),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "SourceControl.Actions.Submit"),
+		FUIAction(
+			FExecuteAction::CreateRaw(this, &FGitSourceControlMenu::CommitClicked),
+			FCanExecuteAction::CreateRaw(this, &FGitSourceControlMenu::HaveRemoteUrl)
+		)
+	);
+	
+	Builder.AddSeparator("GitSourceControlPluginActions");
+
+	Builder.AddMenuEntry(
+		LOCTEXT("GitPush",				"Push pending local commits"),
+		LOCTEXT("GitPushTooltip",		"Push all pending local commits to the remote server."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "SourceControl.Actions.Submit"),
+		FUIAction(
+			FExecuteAction::CreateRaw(this, &FGitSourceControlMenu::PushClicked),
+			FCanExecuteAction::CreateRaw(this, &FGitSourceControlMenu::HaveRemoteUrl)
+		)
+	);
+
+	Builder.AddMenuEntry(
+		LOCTEXT("GitSync",				"Pull"),
+		LOCTEXT("GitSyncTooltip",		"Update all files in the local repository to the latest version of the remote server."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "SourceControl.Actions.Sync"),
+		FUIAction(
+			FExecuteAction::CreateRaw(this, &FGitSourceControlMenu::SyncClicked),
+			FCanExecuteAction::CreateRaw(this, &FGitSourceControlMenu::HaveRemoteUrl)
+		)
+	);
+
+	Builder.AddMenuEntry(
+		LOCTEXT("GitRevert",			"Revert"),
+		LOCTEXT("GitRevertTooltip",		"Revert all files in the repository to their unchanged state."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "SourceControl.Actions.Revert"),
+		FUIAction(
+			FExecuteAction::CreateRaw(this, &FGitSourceControlMenu::RevertClicked),
+			FCanExecuteAction()
+		)
+	);
+
+	Builder.AddMenuEntry(
+		LOCTEXT("GitRefresh",			"Refresh"),
+		LOCTEXT("GitRefreshTooltip",	"Update the source control status of all files in the local repository."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "SourceControl.Actions.Refresh"),
+		FUIAction(
+			FExecuteAction::CreateRaw(this, &FGitSourceControlMenu::RefreshClicked),
+			FCanExecuteAction()
+		)
+	);
+}
+#endif
 
 #if ENGINE_MAJOR_VERSION < 5
 TSharedRef<FExtender> FGitSourceControlMenu::OnExtendLevelEditorViewMenu(const TSharedRef<FUICommandList> CommandList)

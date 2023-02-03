@@ -40,6 +40,7 @@ private:
 
 #if ENGINE_MAJOR_VERSION >= 5
 	void AddMenuExtension(FToolMenuSection& Builder);
+	void AddMenuExtension(FMenuBuilder& Builder);
 #else
 	void AddMenuExtension(FMenuBuilder& Builder);
 	TSharedRef<class FExtender> OnExtendLevelEditorViewMenu(const TSharedRef<class FUICommandList> CommandList);
@@ -54,6 +55,8 @@ private:
 #if ENGINE_MAJOR_VERSION < 5
 	FDelegateHandle ViewMenuExtenderHandle;
 #endif
+	TSharedPtr<FExtender> ViewMenuExtender;
+
 
 	/** Was there a need to stash away modifications before Sync? */
 	bool bStashMadeBeforeSync;
