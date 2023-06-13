@@ -7,7 +7,7 @@
 
 #include "GitSourceControlRevision.h"
 
-class FGitSourceControlState;
+#include "GitSourceControlState.h"
 
 class FGitSourceControlCommand;
 

@@ -6,6 +6,7 @@
 #include "Logging/MessageLog.h"
 #include "Logging/TokenizedMessage.h"
 #include "Templates/SharedPointer.h"
+#include "ISourceControlModule.h"
 
 /** 
  * A thread safe replacement for FMessageLog which can be called from background threads. 

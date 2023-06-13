@@ -6,7 +6,7 @@
 #include "GitSourceControlState.h"
 
 #if ENGINE_MAJOR_VERSION >= 5
-include "Textures/SlateIcon.h"
+#include "Textures/SlateIcon.h"
 #if ENGINE_MINOR_VERSION >= 2
 #include "RevisionControlStyle/RevisionControlStyle.h"
 #endif
