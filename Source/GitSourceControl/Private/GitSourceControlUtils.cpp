@@ -5,27 +5,26 @@
 
 #include "GitSourceControlUtils.h"
 
+#include "GitMessageLog.h"
 #include "GitSourceControlCommand.h"
 #include "GitSourceControlModule.h"
 #include "GitSourceControlProvider.h"
 #include "HAL/PlatformProcess.h"
 
+#include "HAL/PlatformFile.h"
 #if ENGINE_MAJOR_VERSION >= 5
 #include "HAL/PlatformFileManager.h"
 #else
 #include "HAL/PlatformFilemanager.h"
 #endif
 
-#include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "Interfaces/IPluginManager.h"
 #include "ISourceControlModule.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Modules/ModuleManager.h"
 #include "ISourceControlModule.h"
 #include "GitSourceControlModule.h"
-#include "GitSourceControlProvider.h"
 #include "Logging/MessageLog.h"
 #include "Misc/DateTime.h"
 #include "Misc/ScopeLock.h"
@@ -36,10 +35,6 @@
 #include "Misc/MessageDialog.h"
 
 #include "Async/Async.h"
-
-#if PLATFORM_LINUX
-#include <sys/ioctl.h>
-#endif
 
 #ifndef GIT_DEBUG_STATUS
 #define GIT_DEBUG_STATUS 0
@@ -80,6 +75,49 @@ const FString& FGitScopedTempFile::GetFilename() const
 
 FDateTime FGitLockedFilesCache::LastUpdated = FDateTime::MinValue();
 TMap<FString, FString> FGitLockedFilesCache::LockedFiles = TMap<FString, FString>();
+
+void FGitLockedFilesCache::SetLockedFiles(const TMap<FString, FString>& newLocks)
+{	
+	for (auto lock : LockedFiles)
+	{
+		if (!newLocks.Contains(lock.Key))
+		{
+			OnFileLockChanged(lock.Key, lock.Value, false);
+		}
+	}
+	
+	for (auto lock : newLocks)
+	{		
+		if (!LockedFiles.Contains(lock.Key))
+		{
+			OnFileLockChanged(lock.Key, lock.Value, true);
+		}		
+	}
+
+	LockedFiles = newLocks;
+}
+
+void FGitLockedFilesCache::AddLockedFile(const FString& filePath, const FString& lockUser)
+{
+	LockedFiles.Add(filePath, lockUser);
+	OnFileLockChanged(filePath, lockUser, true);
+}
+
+void FGitLockedFilesCache::RemoveLockedFile(const FString& filePath)
+{
+	FString user;
+	LockedFiles.RemoveAndCopyValue(filePath, user);
+	OnFileLockChanged(filePath, user, false);
+}
+
+void FGitLockedFilesCache::OnFileLockChanged(const FString& filePath, const FString& lockUser, bool locked)
+{
+	const FString& LfsUserName = FGitSourceControlModule::Get().GetProvider().GetLockUser();
+	if (LfsUserName == lockUser)
+	{
+		FPlatformFileManager::Get().GetPlatformFile().SetReadOnly(*filePath, !locked);		
+	}
+}
 
 namespace GitSourceControlUtils
 {
@@ -639,6 +677,31 @@ bool GetRemoteBranchName(const FString& InPathToGitBinary, const FString& InRepo
 	return bResults;
 }
 
+bool GetRemoteBranchesWildcard(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const FString& PatternMatch, TArray<FString>& OutBranchNames)
+{
+	TArray<FString> InfoMessages;
+	TArray<FString> ErrorMessages;
+	TArray<FString> Parameters;
+	Parameters.Add(TEXT("--remotes"));
+	Parameters.Add(TEXT("--list"));
+	bool bResults = RunCommand(TEXT("branch"), InPathToGitBinary, InRepositoryRoot, Parameters, { PatternMatch },
+								InfoMessages, ErrorMessages);
+	if (bResults && InfoMessages.Num() > 0)
+	{
+		OutBranchNames = InfoMessages;
+	}
+	if (!bResults)
+	{
+		static bool bRunOnce = true;
+		if (bRunOnce)
+		{
+			UE_LOG(LogSourceControl, Warning, TEXT("No remote branches matching pattern \"%s\" were found."), *PatternMatch);
+			bRunOnce = false;
+		}
+	}
+	return bResults;	
+}
+	
 bool GetCommitInfo(const FString& InPathToGitBinary, const FString& InRepositoryRoot, FString& OutCommitId, FString& OutCommitSummary)
 {
 	bool bResults;
@@ -1083,7 +1146,7 @@ void AbsoluteFilenames(const FString& InRepositoryRoot, TArray<FString>& InFileN
 
 /** Run a 'git ls-files' command to get all files tracked by Git recursively in a directory.
  *
- * Called in case of a "directory status" (no file listed in the command) when using the "Submit to Source Control" menu.
+ * Called in case of a "directory status" (no file listed in the command) when using the "Submit to Revision Control" menu.
  */
 bool ListFilesInDirectoryRecurse(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const FString& InDirectory, TArray<FString>& OutFiles)
 {
@@ -1208,7 +1271,7 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 					bCheckedLockedFiles = true;
 					TArray<FString> ErrorMessages;
 					GetAllLocks(InRepositoryRoot, InPathToGitBinary, ErrorMessages, LockedFiles);
-					FMessageLog SourceControlLog("SourceControl");
+					FTSMessageLog SourceControlLog("SourceControl");
 					for (int32 ErrorIndex = 0; ErrorIndex < ErrorMessages.Num(); ++ErrorIndex)
 					{
 						SourceControlLog.Error(FText::FromString(ErrorMessages[ErrorIndex]));
@@ -1255,7 +1318,7 @@ static void ParseFileStatusResult(const FString& InPathToGitBinary, const FStrin
 /**
  * @brief Detects how to parse the result of a "status" command to get workspace file states
  *
- *  It is either a command for a whole directory (ie. "Content/", in case of "Submit to Source Control" menu),
+ *  It is either a command for a whole directory (ie. "Content/", in case of "Submit to Revision Control" menu),
  * or for one or more files all on a same directory (by design, since we group files by directory in RunUpdateStatus())
  *
  * @param[in]	InPathToGitBinary	The path to the Git binary
@@ -1332,9 +1395,8 @@ void CheckRemote(const FString& InPathToGitBinary, const FString& InRepositoryRo
 	//const TArray<FString>& RelativeFiles = RelativeFilenames(Files, InRepositoryRoot);
 	// Get the full remote status of the Content folder, since it's the only lockable folder we track in editor. 
 	// This shows any new files as well.
-	// Also update the status of `.checksum` and `Binaries` since that lets us know if editor binaries got updated.
-	TArray<FString> FilesToDiff{FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir()), ".checksum", "Binaries"};
-
+	// Also update the status of `.checksum`.
+	TArray<FString> FilesToDiff{FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir()), ".checksum", "Binaries/", "Plugins/"};
 	TArray<FString> ParametersLog{TEXT("--pretty="), TEXT("--name-only"), TEXT(""), TEXT("--")};
 	for (auto& Branch : BranchesToDiff)
 	{
@@ -1360,7 +1422,8 @@ void CheckRemote(const FString& InPathToGitBinary, const FString& InRepositoryRo
 				if (!IsFileLFSLockable(NewerFileName))
 				{
 					// Check if there's newer binaries pending on this branch
-					if (bCurrentBranch && (NewerFileName == TEXT(".checksum") || NewerFileName.StartsWith("Binaries")))
+					if (bCurrentBranch && (NewerFileName == TEXT(".checksum") || NewerFileName.StartsWith("Binaries/", ESearchCase::IgnoreCase) ||
+						NewerFileName.StartsWith("Plugins/", ESearchCase::IgnoreCase)))
 					{
 						Provider.bPendingRestart = true;
 					}
@@ -1426,7 +1489,7 @@ bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallba
 				OutLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
 			}
 			FGitLockedFilesCache::LastUpdated = CurrentTime;
-			FGitLockedFilesCache::LockedFiles = OutLocks;
+			FGitLockedFilesCache::SetLockedFiles(OutLocks);
 			return bResult;
 		}
 		// We tried to invalidate the UE cache, but we failed for some reason. Try updating lock state from LFS cache.
@@ -1481,7 +1544,7 @@ bool GetAllLocks(const FString& InRepositoryRoot, const FString& GitBinaryFallba
 	if (!bResult)
 	{
 		// We can use our internally tracked local lock cache (an effective combination of --cached and --local)
-		OutLocks = FGitLockedFilesCache::LockedFiles;
+		OutLocks = FGitLockedFilesCache::GetLockedFiles();
 		bResult = true;
 	}
 	return bResult;
@@ -1519,7 +1582,7 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 	TArray<FString> Parameters;
 	Parameters.Add(TEXT("--porcelain"));
 	Parameters.Add(TEXT("-uall")); // make sure we use -uall to list all files instead of directories
-	// We skip checking ignored since no one ignores files that Unreal would read in as source controlled (Content/{*.uasset,*.umap},Config/*.ini).
+	// We skip checking ignored since no one ignores files that Unreal would read in as revision controlled (Content/{*.uasset,*.umap},Config/*.ini).
 	TArray<FString> Results;
 	// avoid locking the index when not needed (useful for status updates)
 	const bool bResult = RunCommand(TEXT("--no-optional-locks status"), InPathToGitBinary, InRepositoryRoot, Parameters, RepoFiles, Results, OutErrorMessages);
@@ -2154,7 +2217,9 @@ bool FetchRemote(const FString& InPathToGitBinary, const FString& InPathToReposi
 	TArray<FString> Params{"--no-tags"};
 	// fetch latest repo
 	// TODO specify branches?
-	return RunCommand(TEXT("fetch"), InPathToGitBinary, InPathToRepositoryRoot, FGitSourceControlModule::GetEmptyStringArray(),
+
+	Params.Add(TEXT("--prune"));
+	return RunCommand(TEXT("fetch"), InPathToGitBinary, InPathToRepositoryRoot, Params,
 					  FGitSourceControlModule::GetEmptyStringArray(), OutResults, OutErrorMessages);
 }
 
@@ -2249,6 +2314,43 @@ bool PullOrigin(const FString& InPathToGitBinary, const FString& InPathToReposit
 	}
 
 	return bSuccess;
+}
+
+TSharedPtr<ISourceControlRevision, ESPMode::ThreadSafe> GetOriginRevisionOnBranch( const FString & InPathToGitBinary, const FString & InRepositoryRoot, const FString & InRelativeFileName, TArray<FString> & OutErrorMessages, const FString & BranchName )
+{
+	TGitSourceControlHistory OutHistory;
+
+	TArray< FString > Results;
+	TArray< FString > Parameters;
+	Parameters.Add( BranchName );
+	Parameters.Add( TEXT( "--date=raw" ) );
+	Parameters.Add( TEXT( "--pretty=medium" ) ); // make sure format matches expected in ParseLogResults
+
+	TArray< FString > Files;
+	const auto bResults = RunCommand( TEXT( "show" ), InPathToGitBinary, InRepositoryRoot, Parameters, Files, Results, OutErrorMessages );
+
+	if ( bResults )
+	{
+		ParseLogResults( Results, OutHistory );
+	}
+
+	if ( OutHistory.Num() > 0 )
+	{
+		auto AbsoluteFileName = FPaths::ConvertRelativePathToFull( InRelativeFileName );
+
+		AbsoluteFileName.RemoveFromStart( InRepositoryRoot );
+
+		if ( AbsoluteFileName[ 0 ] == '/' )
+		{
+			AbsoluteFileName.RemoveAt( 0 );
+		}
+
+		OutHistory[ 0 ]->Filename = AbsoluteFileName;
+
+		return OutHistory[ 0 ];
+	}
+
+	return nullptr;
 }
 
 } // namespace GitSourceControlUtils
