@@ -97,13 +97,13 @@ FSlateIcon FGitSourceControlState::GetIcon() const
 #endif
 	case EGitState::LockedOther:
 #if ENGINE_MINOR_VERSION >= 2
-		return GET_ICON_RETURN("RevisionControl.CheckedOutByOtherUser", NAME_None, "RevisionControl.CheckedOutByOtherUserBadge");
+		return GET_ICON_RETURN("RevisionControl.CheckedOutByOtherUser");
 #else
 		return GET_ICON_RETURN("Perforce.CheckedOutByOtherUser");
 #endif
 	case EGitState::NotLatest:
 #if ENGINE_MINOR_VERSION >= 2
-		return GET_ICON_RETURN("RevisionControl.ModifiedOtherBranch", NAME_None, "RevisionControl.ModifiedBadge");
+		return GET_ICON_RETURN("RevisionControl.ModifiedOtherBranch");
 #else
 		return GET_ICON_RETURN("Perforce.ModifiedOtherBranch");
 #endif
