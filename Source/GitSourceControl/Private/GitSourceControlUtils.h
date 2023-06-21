@@ -8,8 +8,6 @@
 #include "GitSourceControlRevision.h"
 #include "GitSourceControlState.h"
 
-#include "GitSourceControlState.h"
-
 class FGitSourceControlCommand;
 
 /**
