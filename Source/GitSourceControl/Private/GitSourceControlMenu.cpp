@@ -77,9 +77,9 @@ void FGitSourceControlMenu::Register()
 		
 		LevelEditorModule->GetMenuExtensibilityManager()->AddExtender(ViewMenuExtender);
 #else
-		FLevelEditorModule::FLevelEditorMenuExtender ViewMenuExtender = FLevelEditorModule::FLevelEditorMenuExtender::CreateRaw(this, &FGitSourceControlMenu::OnExtendLevelEditorViewMenu);
+		const FLevelEditorModule::FLevelEditorMenuExtender MenuExtender = FLevelEditorModule::FLevelEditorMenuExtender::CreateRaw(this, &FGitSourceControlMenu::OnExtendLevelEditorViewMenu);
 		auto& MenuExtenders = LevelEditorModule->GetAllLevelEditorToolbarSourceControlMenuExtenders();
-		MenuExtenders.Add(ViewMenuExtender);
+		MenuExtenders.Add(MenuExtender);
 		ViewMenuExtenderHandle = MenuExtenders.Last().GetHandle();
 #endif
 	}
