@@ -41,6 +41,7 @@
 #include "UObject/Linker.h"
 
 static const FName GitSourceControlMenuTabName(TEXT("GitSourceControlMenu"));
+static const FName LevelEditorName(TEXT("LevelEditor"));
 
 #define LOCTEXT_NAMESPACE "GitSourceControl"
 
@@ -49,7 +50,7 @@ TWeakPtr<SNotificationItem> FGitSourceControlMenu::OperationInProgressNotificati
 void FGitSourceControlMenu::Register()
 {
 #if ENGINE_MAJOR_VERSION >= 5
-	FToolMenuOwnerScoped SourceControlMenuOwner("GitSourceControlMenu");
+    FToolMenuOwnerScoped SourceControlMenuOwner( GitSourceControlMenuTabName );
 	if (UToolMenus* ToolMenus = UToolMenus::Get())
 	{
 		UToolMenu* SourceControlMenu = ToolMenus->ExtendMenu("StatusBar.ToolBar.SourceControl");
@@ -59,7 +60,7 @@ void FGitSourceControlMenu::Register()
 	}
 #endif
 	// Register the extension with the level editor
-	FLevelEditorModule* LevelEditorModule = FModuleManager::GetModulePtr<FLevelEditorModule>(TEXT("LevelEditor"));
+    FLevelEditorModule * LevelEditorModule = FModuleManager::GetModulePtr< FLevelEditorModule >( LevelEditorName );
 	if (LevelEditorModule)
 	{
 #if ENGINE_MAJOR_VERSION >= 5
@@ -94,7 +95,7 @@ void FGitSourceControlMenu::Unregister()
 	}
 #endif
 	// Unregister the level editor extensions
-	FLevelEditorModule* LevelEditorModule = FModuleManager::GetModulePtr<FLevelEditorModule>("LevelEditor");
+    FLevelEditorModule * LevelEditorModule = FModuleManager::GetModulePtr< FLevelEditorModule >( LevelEditorName );
 	if (LevelEditorModule)
 	{
 #if ENGINE_MAJOR_VERSION >= 5
