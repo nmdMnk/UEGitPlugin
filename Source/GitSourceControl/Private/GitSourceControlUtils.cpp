@@ -165,7 +165,24 @@ namespace GitSourceControlUtils
 					FPaths::NormalizeDirectoryName(PathToRepositoryRootNormalized);
 					if (!FPaths::IsSamePath(RetNormalized, PathToRepositoryRootNormalized) && Ret != FPaths::GetPath(GitTestPath))
 					{
-						UE_LOG(LogSourceControl, Error, TEXT("Selected files belong to different submodules"));
+						FString EngineRootDir = FGenericPlatformMisc::RootDir();
+
+						auto TrimTrailing = [](FString& Str, const TCHAR Char) {
+							int32 Len = Str.Len();
+							while (Len && Str[Len - 1] == Char)
+							{
+								Str = Str.LeftChop(1);
+								Len = Str.Len();
+							}
+							};
+
+						TrimTrailing(EngineRootDir, '\\');
+						TrimTrailing(EngineRootDir, '/');
+
+						if (RetNormalized != EngineRootDir)
+						{
+							UE_LOG(LogSourceControl, Error, TEXT("Selected files belong to different submodules"));
+						}
 						return PathToRepositoryRoot;
 					}
 					Ret = TestPath;
