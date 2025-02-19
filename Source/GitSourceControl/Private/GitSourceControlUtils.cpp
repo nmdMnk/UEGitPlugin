@@ -148,7 +148,10 @@ namespace GitSourceControlUtils
 				{
 					// TestPath.IsEmpty() meaning is that FilePath is not git file. So it need to removed to git command file list.
 					PackageNotIncludedInGit.Add(FilePath);
-					UE_LOG(LogSourceControl, Warning, TEXT("Package file to update has included dependent file is not git or Can't find directory path for file : %s"), *FilePath);
+					if (!FilePath.StartsWith(TEXT("/Temp/")))
+					{
+						UE_LOG(LogSourceControl, Warning, TEXT("Package file to update has included dependent file is not git or Can't find directory path for file : %s"), *FilePath);
+					}
 
 					break;
 				}
