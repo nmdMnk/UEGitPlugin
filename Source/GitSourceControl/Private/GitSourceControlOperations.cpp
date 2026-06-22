@@ -125,7 +125,12 @@ bool FGitCheckOutWorker::Execute(FGitSourceControlCommand& InCommand)
 
 	const bool bSuccess = GitSourceControlUtils::RunLFSCommand(TEXT("lock"), InCommand.PathToGitRoot, InCommand.PathToGitBinary, FGitSourceControlModule::GetEmptyStringArray(), LockableRelativeFiles, InCommand.ResultInfo.InfoMessages, InCommand.ResultInfo.ErrorMessages);
 	InCommand.bCommandSuccessful = bSuccess;
-	const FString& LockUser = FGitSourceControlModule::Get().GetProvider().GetLockUser();
+	FGitSourceControlModule* GitSourceControlModule = FGitSourceControlModule::GetThreadSafe();
+	if (!GitSourceControlModule)
+	{
+		return InCommand.bCommandSuccessful;
+	}
+	const FString& LockUser = GitSourceControlModule->GetProvider().GetLockUser();
 	if (bSuccess)
 	{
 		TArray<FString> AbsoluteFiles;

@@ -119,7 +119,12 @@ void FGitLockedFilesCache::RemoveLockedFile(const FString& filePath)
 
 void FGitLockedFilesCache::OnFileLockChanged(const FString& filePath, const FString& lockUser, bool locked)
 {
-	const FString& LfsUserName = FGitSourceControlModule::Get().GetProvider().GetLockUser();
+	FGitSourceControlModule* GitSourceControlModule = FGitSourceControlModule::GetThreadSafe();
+	if (!GitSourceControlModule)
+	{
+		return;
+	}
+	const FString& LfsUserName = GitSourceControlModule->GetProvider().GetLockUser();
 	if (LfsUserName == lockUser)
 	{
 		FPlatformFileManager::Get().GetPlatformFile().SetReadOnly(*filePath, !locked);		
@@ -977,8 +982,11 @@ public:
 			// Filename ID (or we expect it to be the username, but it's empty, or is the ID, we have to assume it's the current user)
 			if (Informations.Num() == 2 || Informations[1].IsEmpty() || Informations[1].StartsWith(TEXT("ID:")))
 			{
-				// TODO: thread safety
-				LockUser = FGitSourceControlModule::Get().GetProvider().GetLockUser();
+				FGitSourceControlModule* GitSourceControlModule = FGitSourceControlModule::GetThreadSafe();
+				if (GitSourceControlModule)
+				{
+					LockUser = GitSourceControlModule->GetProvider().GetLockUser();
+				}
 			}
 			// Filename Username ID
 			else
